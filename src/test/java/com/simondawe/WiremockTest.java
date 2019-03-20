@@ -1,20 +1,25 @@
 package com.simondawe;
 
 
+import com.github.tomakehurst.wiremock.http.Fault;
 import com.github.tomakehurst.wiremock.junit.WireMockRule;
+import com.google.gson.Gson;
 import org.apache.commons.io.IOUtils;
+import org.apache.http.HttpHeaders;
 import org.apache.http.HttpResponse;
 import org.apache.http.client.HttpClient;
 import org.apache.http.client.methods.HttpGet;
-import org.apache.http.client.methods.HttpUriRequest;
+import org.apache.http.client.methods.HttpPost;
+import org.apache.http.entity.StringEntity;
 import org.apache.http.impl.client.HttpClients;
 import org.junit.*;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
 import java.io.InputStream;
-import java.util.UUID;
+import java.net.SocketException;
+import java.util.HashMap;
+import java.util.Map;
+
 import static org.junit.Assert.*;
 
 import static com.github.tomakehurst.wiremock.client.WireMock.*;
@@ -22,18 +27,12 @@ import static com.github.tomakehurst.wiremock.client.WireMock.*;
 
 public class WiremockTest {
 
-  Logger logger = LoggerFactory.getLogger(WiremockTest.class);
-
   @Rule
   public WireMockRule wireMockRule = new WireMockRule();
 
   private HttpClient httpClient;
 
-  private HttpUriRequest httpRequest;
-
-  private String testPath;
-  private String testUrl;
-
+  private String baseUrl;
 
   @Before
   public void beforeTest() {
@@ -41,47 +40,51 @@ public class WiremockTest {
 
     httpClient = HttpClients.createDefault();
 
-    testPath = "/" + UUID.randomUUID().toString();
-
-    testUrl = "http://localhost:" + wireMockRule.port() + testPath;
+    baseUrl = "http://localhost:" + wireMockRule.port();
   }
 
   @Test
   public void stubEndpointThenPrintUrl() throws Exception{
     // when
-    wireMockRule.stubFor(get(urlEqualTo(testPath))
-      .willReturn(aResponse().withStatus(200).withBody("Hello" + System.lineSeparator()))
+    String path = "/my-endpoint";
+    wireMockRule.stubFor(get(urlEqualTo(path))
+      .willReturn(aResponse().withStatus(200).withBody(htmlResponseBody()))
     );
 
     // then
-    logger.info("curl " + testUrl);
+    System.out.println("curl " + baseUrl + path);
     Thread.sleep(15_000);
   }
 
   @Test
   public void verifyUrlHasBeenCalled() throws IOException {
     // given
-    HttpGet httpRequest = new HttpGet(testUrl);
-    wireMockRule.stubFor(any(urlPathEqualTo(testPath)).willReturn(aResponse().withStatus(200)));
+    String path = "/path-to-test";
+    HttpGet httpRequest = new HttpGet(baseUrl + path);
+    wireMockRule.stubFor(any(urlPathEqualTo(path))
+      .willReturn(aResponse().withStatus(200)));
 
     // when
     httpClient.execute(httpRequest);
 
     // then
-    verify(getRequestedFor(urlPathEqualTo(testPath)));
+    verify(getRequestedFor(urlPathEqualTo(path)));
     verify(0, getRequestedFor(urlPathEqualTo("/another-path")));
   }
 
   @Test
   public void stubGetRequestWithQueryString() throws Exception {
     //given
-    String queryName = "test";
-    String queryValue = UUID.randomUUID().toString();
-    String body = UUID.randomUUID().toString();
+    String path = "/path-to-test";
+    String queryName = "query-param-1";
+    String queryValue = "query-value";
+    String body = htmlResponseBody();
 
-    wireMockRule.stubFor(get(urlPathEqualTo(testPath)).withQueryParam(queryName, equalTo(queryValue)).willReturn(ok(body)));
+    wireMockRule.stubFor(get(urlPathEqualTo(path))
+      .withQueryParam(queryName, equalTo(queryValue))
+      .willReturn(ok(body)));
 
-    httpRequest = new HttpGet(testUrl + "?" + queryName + "=" + queryValue);
+    HttpGet httpRequest = new HttpGet(baseUrl + path + "?" + queryName + "=" + queryValue);
 
     // when
     HttpResponse response = httpClient.execute(httpRequest);
@@ -92,15 +95,36 @@ public class WiremockTest {
   }
 
   @Test
+  public void stubGetRequestWithJsonResponse() throws Exception {
+    //given
+    String path = "/path-to-test";
+    String body = jsonResponseBody();
+
+    wireMockRule.stubFor(get(urlPathEqualTo(path))
+      .willReturn(okJson(body)));
+
+    HttpGet httpRequest = new HttpGet(baseUrl + path);
+
+    // when
+    HttpResponse response = httpClient.execute(httpRequest);
+
+    // then
+    assertEquals("application/json", response.getFirstHeader(HttpHeaders.CONTENT_TYPE).getValue());
+  }
+
+  @Test
   public void stubGetRequestWithHeaders() throws Exception {
     //given
-    String headerName = "test";
-    String headerValue = UUID.randomUUID().toString();
-    String body = UUID.randomUUID().toString();
+    String path = "/path-to-test";
+    String headerName = "my-header";
+    String headerValue = "my-header-value";
+    String body = htmlResponseBody();
 
-    wireMockRule.stubFor(get(urlPathEqualTo(testPath)).withHeader(headerName, equalTo(headerValue)).willReturn(ok(body)));
+    wireMockRule.stubFor(get(urlPathEqualTo(path))
+      .withHeader(headerName, equalTo(headerValue))
+      .willReturn(ok(body)));
 
-    httpRequest = new HttpGet(testUrl);
+    HttpGet httpRequest = new HttpGet(baseUrl + path);
     httpRequest.setHeader(headerName, headerValue);
 
     // when
@@ -116,12 +140,14 @@ public class WiremockTest {
   @Test
   public void stubGetRequestWithRegex() throws Exception {
     // given
-    String body = UUID.randomUUID().toString();
-    String pathRegex = testPath + ".*";
+    String path = "/path-to-test";
+    String body = htmlResponseBody();
+    String pathRegex = path + ".*";
 
-    wireMockRule.stubFor(get(urlMatching(pathRegex)).willReturn(ok(body)));
+    wireMockRule.stubFor(get(urlMatching(pathRegex))
+      .willReturn(ok(body)));
 
-    httpRequest = new HttpGet(testUrl + "more-text");
+    HttpGet httpRequest = new HttpGet(baseUrl + path + "/deeper-path");
 
     // when
     HttpResponse response = httpClient.execute(httpRequest);
@@ -134,15 +160,20 @@ public class WiremockTest {
   @Test
   public void stubGetRequestWithMultiplePaths() throws Exception {
     // given
-    String body = UUID.randomUUID().toString();
-    String pathRegex = testPath + ".*";
-    String happyPath = testPath + "/resource";
+    String path = "/path-to-test";
+    String body = htmlResponseBody();
+    String pathRegex = path + ".*";
+    String happyPath = path + "/resource";
 
-    wireMockRule.stubFor(get(urlMatching(pathRegex)).atPriority(5).willReturn(unauthorized()));
-    wireMockRule.stubFor(get(urlPathEqualTo(happyPath)).willReturn(ok(body)));
+    wireMockRule.stubFor(get(urlMatching(pathRegex))
+      .atPriority(5)
+      .willReturn(unauthorized()));
 
-    httpRequest = new HttpGet(testUrl + "/resource");
-    HttpGet unauthorizedHttpRequest = new HttpGet(testUrl + "/will-401");
+    wireMockRule.stubFor(get(urlPathEqualTo(happyPath))
+      .willReturn(ok(body)));
+
+    HttpGet httpRequest = new HttpGet(baseUrl + path + "/resource");
+    HttpGet unauthorizedHttpRequest = new HttpGet(baseUrl + path + "/will-401");
 
     // when
     HttpResponse response = httpClient.execute(httpRequest);
@@ -155,22 +186,58 @@ public class WiremockTest {
 
   }
 
-/*
   @Test
-  public void stubGetRequestWithInvalidParam() {
+  public void stubPostRequest() throws Exception {
+    // given
+    String path = "/path-to-test";
+    String requestBodyKey = "key";
+    String requestBodyValue = "value";
+    Map<String, String> requestMap = new HashMap<>();
+    requestMap.put(requestBodyKey, requestBodyValue);
+    String requestBody = new Gson().toJson(requestMap);
+
+    wireMockRule.stubFor(post(urlPathEqualTo(path))
+      .withRequestBody(equalToJson(requestBody))
+      .willReturn(created())
+    );
+
+    HttpPost httpRequest = new HttpPost(baseUrl + path);
+    httpRequest.setEntity(new StringEntity(requestBody));
+
+    // when
+    HttpResponse response = httpClient.execute(httpRequest);
+
+    // then
+    assertEquals(201, response.getStatusLine().getStatusCode());
   }
 
   @Test
-  public void stubPostRequest() {
+  public void stubFault() {
+    // given
+    String path = "/fault";
 
+    wireMockRule.stubFor(get(urlPathEqualTo(path))
+      .willReturn(aResponse().withFault(Fault.CONNECTION_RESET_BY_PEER)));
+
+    HttpGet httpRequest = new HttpGet(baseUrl + path);
+
+    // when
+    try {
+      httpClient.execute(httpRequest);
+    } catch (Exception e) {
+      // then
+      assertEquals(SocketException.class, e.getClass());
+      assertEquals("Connection reset", e.getMessage());
+    }
   }
 
+  private String htmlResponseBody() throws  IOException{
+    return IOUtils.toString(WiremockTest.class.getResourceAsStream("/hello-world.html"), "utf-8");
+  }
 
-
-  @Test
-  public void simulateLongDelayOnResponse() {
-
-  }*/
+  private String jsonResponseBody() throws  IOException{
+    return IOUtils.toString(WiremockTest.class.getResourceAsStream("/hello-world.json"), "utf-8");
+  }
 
   private String getBodyFromResponse(HttpResponse response) throws IOException {
     try (InputStream in = response.getEntity().getContent()) {
