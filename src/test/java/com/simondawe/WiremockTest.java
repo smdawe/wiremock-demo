@@ -2,6 +2,8 @@ package com.simondawe;
 
 
 import com.github.tomakehurst.wiremock.junit.WireMockRule;
+import org.apache.commons.io.IOUtils;
+import org.apache.http.HttpResponse;
 import org.apache.http.client.HttpClient;
 import org.apache.http.client.methods.HttpGet;
 import org.apache.http.client.methods.HttpUriRequest;
@@ -11,7 +13,9 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
+import java.io.InputStream;
 import java.util.UUID;
+import static org.junit.Assert.*;
 
 import static com.github.tomakehurst.wiremock.client.WireMock.*;
 
@@ -20,10 +24,8 @@ public class WiremockTest {
 
   Logger logger = LoggerFactory.getLogger(WiremockTest.class);
 
-  @ClassRule
-  public static WireMockRule wireMockRule = new WireMockRule();
-  private static String baseUrl;
-
+  @Rule
+  public WireMockRule wireMockRule = new WireMockRule();
 
   private HttpClient httpClient;
 
@@ -31,11 +33,6 @@ public class WiremockTest {
 
   private String testPath;
   private String testUrl;
-
-  @BeforeClass
-  public static void beforeClass() {
-    baseUrl = "http://localhost:" + wireMockRule.port();
-  }
 
 
   @Before
@@ -46,7 +43,7 @@ public class WiremockTest {
 
     testPath = "/" + UUID.randomUUID().toString();
 
-    testUrl = baseUrl + testPath;
+    testUrl = "http://localhost:" + wireMockRule.port() + testPath;
   }
 
   @Test
@@ -58,13 +55,13 @@ public class WiremockTest {
 
     // then
     logger.info("curl " + testUrl);
-    Thread.sleep(30_000);
+    Thread.sleep(15_000);
   }
 
   @Test
   public void verifyUrlHasBeenCalled() throws IOException {
     // given
-    HttpGet httpRequest = new HttpGet(baseUrl + testPath);
+    HttpGet httpRequest = new HttpGet(testUrl);
     wireMockRule.stubFor(any(urlPathEqualTo(testPath)).willReturn(aResponse().withStatus(200)));
 
     // when
@@ -74,32 +71,55 @@ public class WiremockTest {
     verify(getRequestedFor(urlPathEqualTo(testPath)));
     verify(0, getRequestedFor(urlPathEqualTo("/another-path")));
   }
-/*
-
 
   @Test
-  public void stubGetRequestWithQueryString() {
+  public void stubGetRequestWithQueryString() throws Exception {
     //given
     String queryName = "test";
-    String queryParam = UUID.randomUUID().toString();
-    String response = UUID.randomUUID().toString();
+    String queryValue = UUID.randomUUID().toString();
+    String body = UUID.randomUUID().toString();
 
-    wireMockRule.stubFor(get(urlPathEqualTo(testPath)).withQueryParam(queryName, equalTo(queryParam)).willReturn(
-      aResponse().withStatus(200).withBody(response)
+    wireMockRule.stubFor(get(urlPathEqualTo(testPath)).withQueryParam(queryName, equalTo(queryValue)).willReturn(
+      aResponse().withStatus(200).withBody(body)
+    ));
+
+    httpRequest = new HttpGet(testUrl + "?" + queryName + "=" + queryValue);
+
+    // when
+    HttpResponse response = httpClient.execute(httpRequest);
+
+    // then
+    String result = getBodyFromResponse(response);
+    assertEquals(body, result);
+  }
+
+  @Test
+  public void stubGetRequestWithHeaders() throws Exception {
+    //given
+    String headerName = "test";
+    String headerValue = UUID.randomUUID().toString();
+    String body = UUID.randomUUID().toString();
+
+    wireMockRule.stubFor(get(urlPathEqualTo(testPath)).withHeader(headerName, equalTo(headerValue)).willReturn(
+      aResponse().withStatus(200).withBody(body)
     ));
 
     httpRequest = new HttpGet(testUrl);
+    httpRequest.setHeader(headerName, headerValue);
 
     // when
+    HttpResponse response = httpClient.execute(httpRequest);
 
+    // then
+    String result = getBodyFromResponse(response);
+    assertEquals(body, result);
   }
+
+/*
 
   @Test
-  public void stubGetRequestWithHeaders() {
-
+  public void stubGetRequestWithRegex() {
   }
-
-
 
   @Test
   public void stubPostRequest() {
@@ -112,4 +132,10 @@ public class WiremockTest {
   public void simulateLongDelayOnResponse() {
 
   }*/
+
+  private String getBodyFromResponse(HttpResponse response) throws IOException {
+    try (InputStream in = response.getEntity().getContent()) {
+      return IOUtils.toString(in, "utf-8");
+    }
+  }
 }
