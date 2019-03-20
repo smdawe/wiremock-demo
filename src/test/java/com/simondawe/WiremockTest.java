@@ -79,9 +79,7 @@ public class WiremockTest {
     String queryValue = UUID.randomUUID().toString();
     String body = UUID.randomUUID().toString();
 
-    wireMockRule.stubFor(get(urlPathEqualTo(testPath)).withQueryParam(queryName, equalTo(queryValue)).willReturn(
-      aResponse().withStatus(200).withBody(body)
-    ));
+    wireMockRule.stubFor(get(urlPathEqualTo(testPath)).withQueryParam(queryName, equalTo(queryValue)).willReturn(ok(body)));
 
     httpRequest = new HttpGet(testUrl + "?" + queryName + "=" + queryValue);
 
@@ -100,9 +98,7 @@ public class WiremockTest {
     String headerValue = UUID.randomUUID().toString();
     String body = UUID.randomUUID().toString();
 
-    wireMockRule.stubFor(get(urlPathEqualTo(testPath)).withHeader(headerName, equalTo(headerValue)).willReturn(
-      aResponse().withStatus(200).withBody(body)
-    ));
+    wireMockRule.stubFor(get(urlPathEqualTo(testPath)).withHeader(headerName, equalTo(headerValue)).willReturn(ok(body)));
 
     httpRequest = new HttpGet(testUrl);
     httpRequest.setHeader(headerName, headerValue);
@@ -115,13 +111,52 @@ public class WiremockTest {
     assertEquals(body, result);
   }
 
-/*
+
 
   @Test
-  public void stubGetRequestWithRegex() {
+  public void stubGetRequestWithRegex() throws Exception {
+    // given
+    String body = UUID.randomUUID().toString();
+    String pathRegex = testPath + ".*";
+
+    wireMockRule.stubFor(get(urlMatching(pathRegex)).willReturn(ok(body)));
+
+    httpRequest = new HttpGet(testUrl + "more-text");
+
+    // when
+    HttpResponse response = httpClient.execute(httpRequest);
+
+    // then
+    String result = getBodyFromResponse(response);
+    assertEquals(body, result);
   }
 
-   @Test
+  @Test
+  public void stubGetRequestWithMultiplePaths() throws Exception {
+    // given
+    String body = UUID.randomUUID().toString();
+    String pathRegex = testPath + ".*";
+    String happyPath = testPath + "/resource";
+
+    wireMockRule.stubFor(get(urlMatching(pathRegex)).atPriority(5).willReturn(unauthorized()));
+    wireMockRule.stubFor(get(urlPathEqualTo(happyPath)).willReturn(ok(body)));
+
+    httpRequest = new HttpGet(testUrl + "/resource");
+    HttpGet unauthorizedHttpRequest = new HttpGet(testUrl + "/will-401");
+
+    // when
+    HttpResponse response = httpClient.execute(httpRequest);
+    HttpResponse unauthorizedResponse = httpClient.execute(unauthorizedHttpRequest);
+
+    // then
+    String result = getBodyFromResponse(response);
+    assertEquals(body, result);
+    assertEquals(401, unauthorizedResponse.getStatusLine().getStatusCode());
+
+  }
+
+/*
+  @Test
   public void stubGetRequestWithInvalidParam() {
   }
 
