@@ -3,6 +3,7 @@ package com.simondawe;
 
 import com.github.tomakehurst.wiremock.http.Fault;
 import com.github.tomakehurst.wiremock.junit.WireMockRule;
+import com.github.tomakehurst.wiremock.stubbing.Scenario;
 import com.google.gson.Gson;
 import org.apache.commons.io.IOUtils;
 import org.apache.http.HttpHeaders;
@@ -135,8 +136,6 @@ public class WiremockTest {
     assertEquals(body, result);
   }
 
-
-
   @Test
   public void stubGetRequestWithRegex() throws Exception {
     // given
@@ -229,6 +228,114 @@ public class WiremockTest {
       assertEquals(SocketException.class, e.getClass());
       assertEquals("Connection reset", e.getMessage());
     }
+  }
+
+  @Test
+  public void stubGetWithDelay() throws Exception {
+    //given
+    String path = "/path-to-test";
+    int delay = 2_000;
+
+    wireMockRule.stubFor(get(urlPathEqualTo(path))
+      .willReturn(ok().withFixedDelay(delay)));
+
+    HttpGet httpRequest = new HttpGet(baseUrl + path);
+
+    // when
+    long responseStartTime = System.currentTimeMillis();
+    httpClient.execute(httpRequest);
+    long responseEndTime = System.currentTimeMillis();
+    long totalResponseTime = responseEndTime - responseStartTime;
+
+    // then
+    assertTrue(totalResponseTime > delay);
+
+  }
+
+  @Test
+  public void stubGetWithRetry() throws Exception {
+    // given
+    String path = "/path-to-test";
+
+    HttpGet httpRequest = new HttpGet(baseUrl + path);
+    HttpResponse response;
+
+    wireMockRule.stubFor(get(urlPathEqualTo(path))
+      .inScenario("retry-example")
+      .whenScenarioStateIs(Scenario.STARTED)
+      .willReturn(aResponse().withStatus(408))
+      .willSetStateTo("timeout-1"));
+
+    wireMockRule.stubFor(get(urlPathEqualTo(path))
+      .inScenario("retry-example")
+      .whenScenarioStateIs("timeout-1")
+      .willReturn(aResponse().withStatus(200)));
+
+    // then
+    response = httpClient.execute(httpRequest);
+    assertEquals(408, response.getStatusLine().getStatusCode());
+
+    response = httpClient.execute(httpRequest);
+    assertEquals(200, response.getStatusLine().getStatusCode());
+
+  }
+
+  //all tests below this here fail on purpose
+  @Test
+  public void stubGetPathDoesNotExist() throws Exception{
+    // given
+    String path = "/this-path-does-not-exist";
+    String body = htmlResponseBody();
+
+    wireMockRule.stubFor(get(urlPathEqualTo("/a-path"))
+      .willReturn(ok(body)));
+
+    HttpGet httpRequest = new HttpGet(baseUrl + path);
+
+    // when
+    HttpResponse response = httpClient.execute(httpRequest);
+
+    // then
+    assertEquals(200, response.getStatusLine().getStatusCode());
+  }
+
+  @Test(timeout = 1_000L)
+  public void stubTimeout() throws Exception {
+    //given
+    String path = "/path-to-test";
+    int delay = 3_000;
+
+    wireMockRule.stubFor(get(urlPathEqualTo(path))
+      .willReturn(ok().withFixedDelay(delay)));
+
+    HttpGet httpRequest = new HttpGet(baseUrl + path);
+
+    // then
+    httpClient.execute(httpRequest);
+  }
+
+
+  @Test
+  public void stubGetInvalidRequest() throws Exception{
+    // given
+    String path = "/path-to-test";
+    String body = htmlResponseBody();
+
+    wireMockRule.stubFor(get(urlPathEqualTo(path))
+      .withQueryParam("userId", matching("[\\w]{8}(-[\\w]{4}){3}-[\\w]{12}"))
+      .willReturn(ok(body)));
+
+    wireMockRule.stubFor(get(anyUrl())
+      .atPriority(5)
+      .willReturn(badRequest()));
+
+    HttpGet httpRequest = new HttpGet(baseUrl + path + "?userId=invalid");
+
+    // when
+    HttpResponse response = httpClient.execute(httpRequest);
+
+    // then
+    assertEquals(200, response.getStatusLine().getStatusCode());
   }
 
   private String htmlResponseBody() throws  IOException{
