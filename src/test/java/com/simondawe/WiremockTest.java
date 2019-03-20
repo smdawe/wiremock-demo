@@ -314,6 +314,25 @@ public class WiremockTest {
     httpClient.execute(httpRequest);
   }
 
+  @Test
+  public void stubFailToRespond) throws Exception {
+    //given
+    String path = "/path-to-test";
+    String body = htmlResponseBody();
+
+    wireMockRule.stubFor(get(urlPathEqualTo(path))
+      .willReturn(ok(body).withFault(Fault.EMPTY_RESPONSE)));
+
+    HttpGet httpRequest = new HttpGet(baseUrl + path);
+
+    // when
+    HttpResponse response = httpClient.execute(httpRequest);
+
+    // then
+    String result = getBodyFromResponse(response);
+    assertEquals(body, result);
+  }
+
 
   @Test
   public void stubGetInvalidRequest() throws Exception{
