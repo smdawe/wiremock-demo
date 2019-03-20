@@ -121,6 +121,10 @@ public class WiremockTest {
   public void stubGetRequestWithRegex() {
   }
 
+   @Test
+  public void stubGetRequestWithInvalidParam() {
+  }
+
   @Test
   public void stubPostRequest() {
 
