@@ -1,3 +1,6 @@
 .gradle/
 .idea/
+.editorconfig
 *.iml
+scripts/__files
+scripts/mappings
