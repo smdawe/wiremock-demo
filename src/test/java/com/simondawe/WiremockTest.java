@@ -24,14 +24,14 @@ import java.util.Map;
 import java.util.Random;
 
 import static org.junit.Assert.*;
-
+import static com.github.tomakehurst.wiremock.core.WireMockConfiguration.options;
 import static com.github.tomakehurst.wiremock.client.WireMock.*;
 
 
 public class WiremockTest {
 
   @Rule
-  public WireMockRule wireMockRule = new WireMockRule();
+  public WireMockRule wireMockRule = new WireMockRule(options().dynamicPort());
 
   private HttpClient httpClient;
 
