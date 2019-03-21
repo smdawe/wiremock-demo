@@ -11,6 +11,7 @@ import org.apache.http.HttpResponse;
 import org.apache.http.client.HttpClient;
 import org.apache.http.client.methods.HttpGet;
 import org.apache.http.client.methods.HttpPost;
+import org.apache.http.entity.ByteArrayEntity;
 import org.apache.http.entity.StringEntity;
 import org.apache.http.impl.client.HttpClients;
 import org.junit.*;
@@ -20,6 +21,7 @@ import java.io.InputStream;
 import java.net.SocketException;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.Random;
 
 import static org.junit.Assert.*;
 
@@ -37,8 +39,6 @@ public class WiremockTest {
 
   @Before
   public void beforeTest() {
-    wireMockRule.resetAll(); //ensure all stubs are removed before running the next test
-
     httpClient = HttpClients.createDefault();
 
     baseUrl = "http://localhost:" + wireMockRule.port();
@@ -96,24 +96,6 @@ public class WiremockTest {
   }
 
   @Test
-  public void stubGetRequestWithJsonResponse() throws Exception {
-    //given
-    String path = "/path-to-test";
-    String body = jsonResponseBody();
-
-    wireMockRule.stubFor(get(urlPathEqualTo(path))
-      .willReturn(okJson(body)));
-
-    HttpGet httpRequest = new HttpGet(baseUrl + path);
-
-    // when
-    HttpResponse response = httpClient.execute(httpRequest);
-
-    // then
-    assertEquals("application/json", response.getFirstHeader(HttpHeaders.CONTENT_TYPE).getValue());
-  }
-
-  @Test
   public void stubGetRequestWithHeaders() throws Exception {
     //given
     String path = "/path-to-test";
@@ -137,16 +119,34 @@ public class WiremockTest {
   }
 
   @Test
+  public void stubGetRequestWithJsonResponse() throws Exception {
+    //given
+    String path = "/path-to-test";
+    String body = jsonResponseBody();
+
+    wireMockRule.stubFor(get(urlPathEqualTo(path))
+      .willReturn(okJson(body)));
+
+    HttpGet httpRequest = new HttpGet(baseUrl + path);
+
+    // when
+    HttpResponse response = httpClient.execute(httpRequest);
+
+    // then
+    assertEquals("application/json", response.getFirstHeader(HttpHeaders.CONTENT_TYPE).getValue());
+  }
+
+  @Test
   public void stubGetRequestWithRegex() throws Exception {
     // given
     String path = "/path-to-test";
     String body = htmlResponseBody();
-    String pathRegex = path + ".*";
+    String pathRegex = path + "[0-9]";
 
     wireMockRule.stubFor(get(urlMatching(pathRegex))
       .willReturn(ok(body)));
 
-    HttpGet httpRequest = new HttpGet(baseUrl + path + "/deeper-path");
+    HttpGet httpRequest = new HttpGet(baseUrl + path + "1");
 
     // when
     HttpResponse response = httpClient.execute(httpRequest);
@@ -186,7 +186,7 @@ public class WiremockTest {
   }
 
   @Test
-  public void stubPostRequest() throws Exception {
+  public void stubPostRequestJson() throws Exception {
     // given
     String path = "/path-to-test";
     String requestBodyKey = "key";
@@ -202,6 +202,28 @@ public class WiremockTest {
 
     HttpPost httpRequest = new HttpPost(baseUrl + path);
     httpRequest.setEntity(new StringEntity(requestBody));
+
+    // when
+    HttpResponse response = httpClient.execute(httpRequest);
+
+    // then
+    assertEquals(201, response.getStatusLine().getStatusCode());
+  }
+
+  @Test
+  public void stubPostRequestByreArray() throws Exception {
+    // given
+    String path = "/path-to-test";
+    byte[] bytes = new byte[20];
+    new Random().nextBytes(bytes);
+
+    wireMockRule.stubFor(post(urlPathEqualTo(path))
+      .withRequestBody(binaryEqualTo(bytes))
+      .willReturn(created())
+    );
+
+    HttpPost httpRequest = new HttpPost(baseUrl + path);
+    httpRequest.setEntity(new ByteArrayEntity(bytes));
 
     // when
     HttpResponse response = httpClient.execute(httpRequest);
@@ -243,12 +265,13 @@ public class WiremockTest {
 
     // when
     long responseStartTime = System.currentTimeMillis();
-    httpClient.execute(httpRequest);
+    HttpResponse response = httpClient.execute(httpRequest);
     long responseEndTime = System.currentTimeMillis();
     long totalResponseTime = responseEndTime - responseStartTime;
 
     // then
     assertTrue(totalResponseTime > delay);
+    assertEquals(200, response.getStatusLine().getStatusCode());
 
   }
 
@@ -263,17 +286,17 @@ public class WiremockTest {
     wireMockRule.stubFor(get(urlPathEqualTo(path))
       .inScenario("retry-example")
       .whenScenarioStateIs(Scenario.STARTED)
-      .willReturn(aResponse().withStatus(408))
-      .willSetStateTo("timeout-1"));
+      .willReturn(aResponse().withStatus(418))
+      .willSetStateTo("teapot"));
 
     wireMockRule.stubFor(get(urlPathEqualTo(path))
       .inScenario("retry-example")
-      .whenScenarioStateIs("timeout-1")
-      .willReturn(aResponse().withStatus(200)));
+      .whenScenarioStateIs("teapot")
+      .willReturn(ok()));
 
     // then
     response = httpClient.execute(httpRequest);
-    assertEquals(408, response.getStatusLine().getStatusCode());
+    assertEquals(418, response.getStatusLine().getStatusCode());
 
     response = httpClient.execute(httpRequest);
     assertEquals(200, response.getStatusLine().getStatusCode());
@@ -299,6 +322,25 @@ public class WiremockTest {
     assertEquals(200, response.getStatusLine().getStatusCode());
   }
 
+  @Test
+  public void stubGetRequestWithIncorrectRegex() throws Exception {
+    // given
+    String path = "/path-to-test";
+    String body = htmlResponseBody();
+    String pathRegex = path + "[0-9]";
+
+    wireMockRule.stubFor(get(urlMatching(pathRegex))
+      .willReturn(ok(body)));
+
+    HttpGet httpRequest = new HttpGet(baseUrl + path + "a");
+
+    // when
+    HttpResponse response = httpClient.execute(httpRequest);
+
+    // then
+    assertEquals(200, response.getStatusLine().getStatusCode());
+  }
+
   @Test(timeout = 1_000L)
   public void stubTimeout() throws Exception {
     //given
@@ -315,7 +357,7 @@ public class WiremockTest {
   }
 
   @Test
-  public void stubFailToRespond) throws Exception {
+  public void stubFailToRespond() throws Exception {
     //given
     String path = "/path-to-test";
     String body = htmlResponseBody();
