@@ -303,7 +303,7 @@ public class WiremockTest {
 
   }
 
-  //all tests below this here fail on purpose
+  //all tests below here fail on purpose
   @Test
   public void stubGetPathDoesNotExist() throws Exception{
     // given
